@@ -2,8 +2,10 @@ from typing import Iterator, List, Optional, Tuple
 
 import cv2
 import gradio
+import json
+import time
 
-from facefusion import state_manager, translator
+from facefusion import state_manager, translator, voice_changer
 from facefusion.camera_manager import clear_camera_pool, get_local_camera_capture
 from facefusion.filesystem import has_image
 from facefusion.streamer import multi_process_capture, open_stream
@@ -16,6 +18,25 @@ SOURCE_FILE : Optional[gradio.File] = None
 WEBCAM_IMAGE : Optional[gradio.Image] = None
 WEBCAM_START_BUTTON : Optional[gradio.Button] = None
 WEBCAM_STOP_BUTTON : Optional[gradio.Button] = None
+
+
+def debug_log(hypothesis_id : str, location : str, message : str, data : dict) -> None:
+	try:
+		with open('F:/facefusion/debug-b5f084.log', 'a', encoding = 'utf-8') as debug_file:
+			# region agent log
+			debug_file.write(json.dumps(
+			{
+				'sessionId': 'b5f084',
+				'runId': 'pre-fix',
+				'hypothesisId': hypothesis_id,
+				'location': location,
+				'message': message,
+				'data': data,
+				'timestamp': int(time.time() * 1000)
+			}, ensure_ascii = True) + '\n')
+			# endregion
+	except Exception:
+		pass
 
 
 def render() -> None:
@@ -79,38 +100,87 @@ def pre_start() -> Tuple[gradio.File, gradio.Image, gradio.Button, gradio.Button
 
 
 def pre_stop() -> Tuple[gradio.File, gradio.Image, gradio.Button, gradio.Button]:
+	# region agent log
+	debug_log('H1', 'webcam.py:pre_stop', 'pre_stop called', {})
+	# endregion
 	return gradio.File(visible = True), gradio.Image(visible = False), gradio.Button(visible = True), gradio.Button(visible = False)
 
 
 def start(webcam_device_id : int, webcam_mode : WebcamMode, webcam_resolution : str, webcam_fps : Fps) -> Iterator[VisionFrame]:
 	state_manager.init_item('face_selector_mode', 'one')
 	state_manager.sync_state()
+	# region agent log
+	debug_log('H5', 'webcam.py:start', 'webcam start called',
+	{
+		'webcamDeviceId': webcam_device_id,
+		'webcamMode': webcam_mode,
+		'webcamResolution': webcam_resolution,
+		'webcamFps': webcam_fps,
+		'webcamVoicePitch': state_manager.get_item('webcam_voice_pitch')
+	})
+	# endregion
 
 	camera_capture = get_local_camera_capture(webcam_device_id)
 	stream = None
+	# region agent log
+	debug_log('H2', 'webcam.py:start', 'camera capture fetched',
+	{
+		'cameraCaptureExists': camera_capture is not None,
+		'cameraCaptureOpened': bool(camera_capture and camera_capture.isOpened()),
+		'webcamMode': webcam_mode
+	})
+	# endregion
 
 	if webcam_mode in [ 'udp', 'v4l2' ]:
-		stream = open_stream(webcam_mode, webcam_resolution, webcam_fps) #type:ignore[arg-type]
+		voice_changer.prepare_webcam_voice_changer()
+		stream = open_stream(webcam_mode, webcam_resolution, webcam_fps, webcam_mode == 'udp', voice_changer.create_audio_filter()) #type:ignore[arg-type]
 	webcam_width, webcam_height = unpack_resolution(webcam_resolution)
 
 	if camera_capture and camera_capture.isOpened():
-		camera_capture.set(cv2.CAP_PROP_FRAME_WIDTH, webcam_width)
-		camera_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, webcam_height)
-		camera_capture.set(cv2.CAP_PROP_FPS, webcam_fps)
+		try:
+			camera_capture.set(cv2.CAP_PROP_FRAME_WIDTH, webcam_width)
+			camera_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, webcam_height)
+			camera_capture.set(cv2.CAP_PROP_FPS, webcam_fps)
+			stream_error_logged = False
 
-		for capture_vision_frame in multi_process_capture(camera_capture, webcam_fps):
-			capture_vision_frame = cv2.cvtColor(capture_vision_frame, cv2.COLOR_BGR2RGB)
-			capture_vision_frame = fit_cover_frame(capture_vision_frame, (webcam_width, webcam_height))
+			for capture_vision_frame in multi_process_capture(camera_capture, webcam_fps):
+				capture_vision_frame = cv2.cvtColor(capture_vision_frame, cv2.COLOR_BGR2RGB)
+				capture_vision_frame = fit_cover_frame(capture_vision_frame, (webcam_width, webcam_height))
 
-			if webcam_mode == 'inline':
-				yield capture_vision_frame
-			if webcam_mode in [ 'udp', 'v4l2' ]:
-				try:
-					stream.stdin.write(capture_vision_frame.tobytes())
-				except Exception:
-					pass
+				if webcam_mode == 'inline':
+					yield capture_vision_frame
+				if webcam_mode in [ 'udp', 'v4l2' ]:
+					try:
+						stream.stdin.write(capture_vision_frame.tobytes())
+					except Exception as exception:
+						if not stream_error_logged:
+							# region agent log
+							debug_log('H4', 'webcam.py:start', 'stream stdin write failed',
+							{
+								'webcamMode': webcam_mode,
+								'exceptionType': type(exception).__name__,
+								'exceptionMessage': str(exception)
+							})
+							# endregion
+							stream_error_logged = True
+						pass
+		finally:
+			# region agent log
+			debug_log('H3', 'webcam.py:start', 'webcam start generator exiting',
+			{
+				'cameraCaptureOpenedAtExit': bool(camera_capture and camera_capture.isOpened()),
+				'streamExists': stream is not None,
+				'streamPid': stream.pid if stream else None
+			})
+			# endregion
 
 
 def stop() -> gradio.Image:
+	# region agent log
+	debug_log('H1', 'webcam.py:stop', 'webcam stop called', {})
+	# endregion
 	clear_camera_pool()
+	# region agent log
+	debug_log('H1', 'webcam.py:stop', 'camera pool clear requested', {})
+	# endregion
 	return gradio.Image(value = None)

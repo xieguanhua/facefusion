@@ -42,6 +42,27 @@ def conditional_download(download_directory_path : str, urls : List[str]) -> Non
 						progress.update(current_size - progress.n)
 
 
+def download_url(download_directory_path : str, url : str) -> Optional[str]:
+	download_file_name = os.path.basename(urlparse(url).path)
+	download_file_path = os.path.join(download_directory_path, download_file_name)
+
+	if not download_file_name:
+		return None
+	with tqdm(total = 0, desc = translator.get('downloading'), unit = 'B', unit_scale = True, unit_divisor = 1024, ascii = ' =', disable = state_manager.get_item('log_level') in [ 'warn', 'error' ]) as progress:
+		commands = curl_builder.chain(
+			curl_builder.download(url, download_file_path),
+			curl_builder.set_timeout(10),
+			curl_builder.set_retry(3)
+		)
+		process = open_curl(commands)
+		process.communicate()
+		progress.update(get_file_size(download_file_path))
+
+	if is_file(download_file_path) and get_file_size(download_file_path) > 0:
+		return download_file_path
+	return None
+
+
 @lru_cache(maxsize = 64)
 def get_static_download_size(url : str) -> int:
 	commands = curl_builder.chain(

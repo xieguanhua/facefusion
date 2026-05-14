@@ -1,8 +1,10 @@
 import os
 import subprocess
+import json
+import time
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
-from typing import Deque, Iterator
+from typing import Any, Deque, Dict, Iterator, Optional
 
 import cv2
 import numpy
@@ -16,6 +18,25 @@ from facefusion.filesystem import is_directory
 from facefusion.processors.core import get_processors_modules
 from facefusion.types import Fps, StreamMode, VisionFrame
 from facefusion.vision import extract_vision_mask, read_static_images
+
+
+def debug_log(hypothesis_id : str, location : str, message : str, data : Dict[str, Any]) -> None:
+	try:
+		with open('F:/facefusion/debug-b5f084.log', 'a', encoding = 'utf-8') as debug_file:
+			# region agent log
+			debug_file.write(json.dumps(
+			{
+				'sessionId': 'b5f084',
+				'runId': 'pre-fix',
+				'hypothesisId': hypothesis_id,
+				'location': location,
+				'message': message,
+				'data': data,
+				'timestamp': int(time.time() * 1000)
+			}, ensure_ascii = True) + '\n')
+			# endregion
+	except Exception:
+		pass
 
 
 def multi_process_capture(camera_capture : cv2.VideoCapture, camera_fps : Fps) -> Iterator[VisionFrame]:
@@ -69,18 +90,35 @@ def process_stream_frame(target_vision_frame : VisionFrame) -> VisionFrame:
 	return temp_vision_frame
 
 
-def open_stream(stream_mode : StreamMode, stream_resolution : str, stream_fps : Fps) -> subprocess.Popen[bytes]:
+def open_stream(stream_mode : StreamMode, stream_resolution : str, stream_fps : Fps, stream_audio : bool = False, audio_filter : Optional[str] = None) -> subprocess.Popen[bytes]:
 	commands = ffmpeg_builder.chain(
 		ffmpeg_builder.capture_video(),
 		ffmpeg_builder.set_media_resolution(stream_resolution),
-		ffmpeg_builder.set_input_fps(stream_fps)
+		ffmpeg_builder.set_input_fps(stream_fps),
+		ffmpeg_builder.set_input('-')
 	)
 
 	if stream_mode == 'udp':
-		commands.extend(ffmpeg_builder.set_input('-'))
+		if stream_audio and os.name == 'nt':
+			commands.extend([ '-f', 'dshow', '-i', 'audio=default', '-map', '0:v:0', '-map', '1:a:0' ])
+			if audio_filter:
+				commands.extend([ '-af', audio_filter ])
+			commands.extend([ '-c:a', 'aac', '-b:a', '128k' ])
+
 		commands.extend(ffmpeg_builder.set_stream_mode('udp'))
 		commands.extend(ffmpeg_builder.set_stream_quality(2000))
 		commands.extend(ffmpeg_builder.set_output('udp://localhost:27000?pkt_size=1316'))
+		# region agent log
+		debug_log('H3', 'streamer.py:open_stream', 'udp stream command prepared',
+		{
+			'streamMode': stream_mode,
+			'streamAudio': stream_audio,
+			'osName': os.name,
+			'audioFilterProvided': bool(audio_filter),
+			'afFlagPresent': '-af' in commands,
+			'outputTarget': 'udp://localhost:27000?pkt_size=1316'
+		})
+		# endregion
 
 	if stream_mode == 'v4l2':
 		device_directory_path = '/sys/devices/virtual/video4linux'
@@ -97,4 +135,12 @@ def open_stream(stream_mode : StreamMode, stream_resolution : str, stream_fps : 
 		else:
 			logger.error(translator.get('stream_not_loaded').format(stream_mode = stream_mode), __name__)
 
-	return open_ffmpeg(commands)
+	process = open_ffmpeg(commands)
+	# region agent log
+	debug_log('H4', 'streamer.py:open_stream', 'ffmpeg process opened',
+	{
+		'streamMode': stream_mode,
+		'pid': process.pid if process else None
+	})
+	# endregion
+	return process

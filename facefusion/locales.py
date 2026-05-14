@@ -52,6 +52,15 @@ LOCALES : Locales =\
 		'ui_layout_not_implemented': 'ui layout {ui_layout} not implemented correctly',
 		'stream_not_loaded': 'stream {stream_mode} could not be loaded',
 		'stream_not_supported': 'stream not supported',
+		'webcam_voice_model_list_loaded': 'loaded {count} voice models',
+		'webcam_voice_model_refresh_succeeded': 'refreshed {count} remote voice models',
+		'webcam_voice_model_refresh_failed': 'refresh failed, fallback to built-in list',
+		'webcam_voice_model_not_selected': 'please choose a voice model first',
+		'webcam_voice_model_download_missing_url': 'selected voice model has no downloadable url',
+		'webcam_voice_model_already_downloaded': 'voice model {model_name} already downloaded',
+		'webcam_voice_model_download_succeeded': 'downloaded voice model {model_name}',
+		'webcam_voice_model_download_failed': 'failed to download voice model {model_name}: {reason}',
+		'webcam_voice_model_unavailable': 'voice changer model unavailable, fallback to passthrough',
 		'job_created': 'job {job_id} created',
 		'job_not_created': 'job {job_id} not created',
 		'job_submitted': 'job {job_id} submitted',
@@ -268,7 +277,11 @@ LOCALES : Locales =\
 			'webcam_image': 'WEBCAM',
 			'webcam_device_id_dropdown': 'WEBCAM DEVICE ID',
 			'webcam_mode_radio': 'WEBCAM MODE',
-			'webcam_resolution_dropdown': 'WEBCAM RESOLUTION'
+			'webcam_resolution_dropdown': 'WEBCAM RESOLUTION',
+			'webcam_stream_target_textbox': 'WEBCAM STREAM TARGET',
+			'webcam_voice_model_source_dropdown': 'VOICE MODEL SOURCE',
+			'webcam_voice_model_dropdown': 'VOICE MODEL',
+			'webcam_voice_pitch_slider': 'VOICE PITCH'
 		}
 	}
 }

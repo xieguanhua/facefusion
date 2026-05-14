@@ -162,6 +162,7 @@ BenchmarkCycleSet = TypedDict('BenchmarkCycleSet',
 
 WebcamMode = Literal['inline', 'udp', 'v4l2']
 StreamMode = Literal['udp', 'v4l2']
+RvcModelSource = Literal['all', 'huggingface', 'github']
 
 ModelOptions : TypeAlias = Dict[str, Any]
 ModelSet : TypeAlias = Dict[str, ModelOptions]
@@ -326,6 +327,13 @@ StateKey = Literal\
 	'job_id',
 	'job_status',
 	'step_index'
+	,
+	'webcam_voice_model_source',
+	'webcam_voice_model_id',
+	'webcam_voice_model_status',
+	'webcam_voice_model_path',
+	'webcam_voice_model_index_path',
+	'webcam_voice_pitch'
 ]
 State = TypedDict('State',
 {
@@ -396,6 +404,13 @@ State = TypedDict('State',
 	'job_id' : str,
 	'job_status' : JobStatus,
 	'step_index' : int
+	,
+	'webcam_voice_model_source' : RvcModelSource,
+	'webcam_voice_model_id' : str,
+	'webcam_voice_model_status' : str,
+	'webcam_voice_model_path' : str,
+	'webcam_voice_model_index_path' : str,
+	'webcam_voice_pitch' : int
 })
 ApplyStateItem : TypeAlias = Callable[[Any, Any], None]
 StateSet : TypeAlias = Dict[AppContext, State]

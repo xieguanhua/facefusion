@@ -90,7 +90,11 @@ ComponentName = Literal\
 	'webcam_device_id_dropdown',
 	'webcam_fps_slider',
 	'webcam_mode_radio',
-	'webcam_resolution_dropdown'
+	'webcam_resolution_dropdown',
+	'webcam_stream_target_textbox',
+	'webcam_voice_model_source_dropdown',
+	'webcam_voice_model_dropdown',
+	'webcam_voice_pitch_slider'
 ]
 Component : TypeAlias = Any
 ComponentOptions : TypeAlias = Dict[str, Any]
