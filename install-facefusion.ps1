@@ -1,13 +1,11 @@
 param(
     [ValidateSet('auto', 'cpu', 'cuda', 'tensorrt', 'openvino')]
     [string]$Accelerator = 'auto',
-    [switch]$OpenBrowser,
     [switch]$SkipWinget,
     [switch]$SkipCondaInit,
     [bool]$AutoFallbackCN = $true,
     [bool]$RepairCondaPath = $true,
     [switch]$InstallPyInstaller,
-    [switch]$NoRun,
     [string]$EnvName = 'facefusion'
 )
 
@@ -234,7 +232,7 @@ function Install-WingetPackageIfMissing {
     }
 
     Write-Host "$DisplayName not found. Install via winget..." -ForegroundColor Yellow
-    & winget install -e --id $PackageId @ExtraArgs --accept-package-agreements --accept-source-agreements
+    & winget install -e --id $PackageId @ExtraArgs --silent --disable-interactivity --accept-package-agreements --accept-source-agreements
 }
 
 function Install-BaseDependencies {
@@ -247,7 +245,7 @@ function Install-BaseDependencies {
     }
     else {
         Write-Host "Conda not found. Install Miniconda via winget..." -ForegroundColor Yellow
-        & winget install -e --id Anaconda.Miniconda3 --version py312_25.1.1-2 --override "/AddToPath=1" --accept-package-agreements --accept-source-agreements
+        & winget install -e --id Anaconda.Miniconda3 --version py312_25.1.1-2 --silent --disable-interactivity --override "/S /InstallationType=JustMe /RegisterPython=0 /AddToPath=1" --accept-package-agreements --accept-source-agreements
     }
 
     Install-WingetPackageIfMissing -DisplayName "FFmpeg" -CheckCommand "ffmpeg" -PackageId "Gyan.FFmpeg" -ExtraArgs @("--version", "7.0.2")
@@ -379,21 +377,6 @@ function Install-PackagingTools {
     Write-Host "Later packaging command: conda run -n $Name pyinstaller --noconfirm --name facefusion facefusion.py" -ForegroundColor Yellow
 }
 
-function Run-FaceFusion {
-    param(
-        [string]$CondaExePath,
-        [string]$Name
-    )
-
-    $args = @('run')
-    if ($OpenBrowser) {
-        $args += '--open-browser'
-    }
-
-    Write-Step "Start FaceFusion"
-    & $CondaExePath run -n $Name python facefusion.py @args
-}
-
 $repoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $repoRoot
 
@@ -435,9 +418,4 @@ if ($InstallPyInstaller) {
     Install-PackagingTools -CondaExePath $condaExe -Name $EnvName
 }
 
-if (-not $NoRun) {
-    Run-FaceFusion -CondaExePath $condaExe -Name $EnvName
-}
-else {
-    Write-Step "Installation finished (run skipped by parameter)"
-}
+Write-Step "Installation finished (run manually when needed)"
