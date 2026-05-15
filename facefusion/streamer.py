@@ -19,6 +19,8 @@ from facefusion.processors.core import get_processors_modules
 from facefusion.types import Fps, StreamMode, VisionFrame
 from facefusion.vision import extract_vision_mask, read_static_images
 
+WINDOWS_AUDIO_DEVICE_NAME : Optional[str] = None
+
 
 def debug_log(hypothesis_id : str, location : str, message : str, data : Dict[str, Any]) -> None:
 	try:
@@ -40,18 +42,20 @@ def debug_log(hypothesis_id : str, location : str, message : str, data : Dict[st
 
 
 def multi_process_capture(camera_capture : cv2.VideoCapture, camera_fps : Fps) -> Iterator[VisionFrame]:
-	capture_deque : Deque[VisionFrame] = deque()
+	capture_deque : Deque[VisionFrame] = deque(maxlen = 1)
 
 	with tqdm(desc = translator.get('streaming'), unit = 'frame', disable = state_manager.get_item('log_level') in [ 'warn', 'error' ]) as progress:
-		with ThreadPoolExecutor(max_workers = state_manager.get_item('execution_thread_count')) as executor:
+		# Realtime mode: keep only one in-flight frame to prevent delay accumulation.
+		max_pending_futures = 1
+		with ThreadPoolExecutor(max_workers = 1) as executor:
 			futures = []
 
 			while camera_capture and camera_capture.isOpened():
 				_, capture_vision_frame = camera_capture.read()
 				if analyse_stream(capture_vision_frame, camera_fps):
-					camera_capture.release()
+					continue
 
-				if numpy.any(capture_vision_frame):
+				if numpy.any(capture_vision_frame) and len(futures) < max_pending_futures:
 					future = executor.submit(process_stream_frame, capture_vision_frame)
 					futures.append(future)
 
@@ -60,9 +64,34 @@ def multi_process_capture(camera_capture : cv2.VideoCapture, camera_fps : Fps) -
 					capture_deque.append(capture_vision_frame)
 					futures.remove(future_done)
 
-				while capture_deque:
+				if capture_deque:
 					progress.update()
 					yield capture_deque.popleft()
+
+
+def resolve_windows_audio_device_name() -> Optional[str]:
+	global WINDOWS_AUDIO_DEVICE_NAME
+
+	if WINDOWS_AUDIO_DEVICE_NAME:
+		return WINDOWS_AUDIO_DEVICE_NAME
+	try:
+		process = subprocess.run(
+			[ 'ffmpeg', '-hide_banner', '-list_devices', 'true', '-f', 'dshow', '-i', 'dummy' ],
+			capture_output = True,
+			text = True,
+			encoding = 'utf-8',
+			errors = 'ignore'
+		)
+		output = (process.stdout or '') + '\n' + (process.stderr or '')
+		for line in output.splitlines():
+			if '(audio)' in line and '"' in line:
+				parts = line.split('"')
+				if len(parts) >= 2 and parts[1].strip():
+					WINDOWS_AUDIO_DEVICE_NAME = parts[1].strip()
+					return WINDOWS_AUDIO_DEVICE_NAME
+	except Exception:
+		return None
+	return None
 
 
 def process_stream_frame(target_vision_frame : VisionFrame) -> VisionFrame:
@@ -100,23 +129,46 @@ def open_stream(stream_mode : StreamMode, stream_resolution : str, stream_fps : 
 
 	if stream_mode == 'udp':
 		if stream_audio and os.name == 'nt':
-			commands.extend([ '-f', 'dshow', '-i', 'audio=default', '-map', '0:v:0', '-map', '1:a:0' ])
+			audio_device_name = resolve_windows_audio_device_name()
+			if audio_device_name:
+				commands.extend([ '-f', 'dshow', '-i', 'audio=' + audio_device_name, '-map', '0:v:0', '-map', '1:a:0' ])
 			if audio_filter:
 				commands.extend([ '-af', audio_filter ])
-			commands.extend([ '-c:a', 'aac', '-b:a', '128k' ])
+			if audio_device_name:
+				commands.extend([ '-c:a', 'aac', '-b:a', '128k', '-ac', '2', '-ar', '48000' ])
+
+		commands.extend(
+		[
+			'-fflags', 'nobuffer',
+			'-flags', 'low_delay',
+			'-c:v', 'libx264',
+			'-preset', 'ultrafast',
+			'-tune', 'zerolatency',
+			'-pix_fmt', 'yuv420p',
+			'-g', str(stream_fps),
+			'-keyint_min', str(stream_fps),
+			'-sc_threshold', '0',
+			'-x264-params', 'repeat-headers=1:aud=1',
+			'-bf', '0',
+			'-flush_packets', '1',
+			'-muxdelay', '0',
+			'-muxpreload', '0',
+			'-max_delay', '0'
+		])
 
 		commands.extend(ffmpeg_builder.set_stream_mode('udp'))
 		commands.extend(ffmpeg_builder.set_stream_quality(2000))
-		commands.extend(ffmpeg_builder.set_output('udp://localhost:27000?pkt_size=1316'))
+		commands.extend(ffmpeg_builder.set_output('udp://127.0.0.1:27000?pkt_size=1316'))
 		# region agent log
 		debug_log('H3', 'streamer.py:open_stream', 'udp stream command prepared',
 		{
 			'streamMode': stream_mode,
 			'streamAudio': stream_audio,
 			'osName': os.name,
+			'windowsAudioDeviceName': resolve_windows_audio_device_name() if stream_audio and os.name == 'nt' else None,
 			'audioFilterProvided': bool(audio_filter),
 			'afFlagPresent': '-af' in commands,
-			'outputTarget': 'udp://localhost:27000?pkt_size=1316'
+			'outputTarget': 'udp://127.0.0.1:27000?pkt_size=1316'
 		})
 		# endregion
 

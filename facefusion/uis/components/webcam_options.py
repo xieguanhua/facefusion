@@ -71,7 +71,7 @@ def resolve_stream_target(webcam_mode : WebcamMode) -> str:
 	if webcam_mode == 'inline':
 		return 'inline preview only'
 	if webcam_mode == 'udp':
-		return 'udp://localhost:27000?pkt_size=1316'
+		return 'udp://127.0.0.1:27000?pkt_size=1316'
 	if webcam_mode == 'v4l2':
 		if os.name == 'posix':
 			return '/dev/video*'

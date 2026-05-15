@@ -31,23 +31,19 @@ def render() -> None:
 	selected_choice = find_selected_choice(model_choices, state_manager.get_item('webcam_voice_model_id'))
 
 	with gradio.Group():
-		with gradio.Row(elem_classes = [ 'head' ]):
-			gradio.HTML(
-				'<label><span data-testid="block-info" dir="ltr">' + translator.get('uis.webcam_voice_model_source_dropdown') + '</span></label>',
-				container = False
-			)
-			with gradio.Row(elem_classes = [ 'tab-like-container' ]):
-				WEBCAM_VOICE_MODEL_SOURCE_DROPDOWN = gradio.Dropdown(
-					choices = [ 'all', 'huggingface', 'github' ],
-					value = state_manager.get_item('webcam_voice_model_source'),
-					show_label = False,
-					container = False
-				)
-				WEBCAM_VOICE_MODEL_REFRESH_BUTTON = gradio.Button(
-					value = '↺',
-					size = 'sm',
-					elem_classes = [ 'reset-button' ]
-				)
+		WEBCAM_VOICE_MODEL_REFRESH_BUTTON = gradio.Button(
+			value = '↺',
+			size = 'sm',
+			elem_classes = [ 'reset-button' ],
+			elem_id = 'webcam-voice-model-refresh-button'
+		)
+
+		WEBCAM_VOICE_MODEL_SOURCE_DROPDOWN = gradio.Dropdown(
+			label = translator.get('uis.webcam_voice_model_source_dropdown'),
+			choices = [ 'all', 'huggingface', 'github' ],
+			value = state_manager.get_item('webcam_voice_model_source')
+		)
+		
 		WEBCAM_VOICE_MODEL_DROPDOWN = gradio.Dropdown(
 			label = translator.get('uis.webcam_voice_model_dropdown'),
 			choices = model_choices,
@@ -69,16 +65,20 @@ def listen() -> None:
 	WEBCAM_VOICE_MODEL_SOURCE_DROPDOWN.change(
 		update_model_source,
 		inputs = WEBCAM_VOICE_MODEL_SOURCE_DROPDOWN,
-		outputs = WEBCAM_VOICE_MODEL_DROPDOWN
+		outputs = WEBCAM_VOICE_MODEL_DROPDOWN,
+		show_progress = 'full'
 	)
 	WEBCAM_VOICE_MODEL_DROPDOWN.change(
 		update_model_choice,
-		inputs = WEBCAM_VOICE_MODEL_DROPDOWN
+		inputs = WEBCAM_VOICE_MODEL_DROPDOWN,
+		outputs = WEBCAM_VOICE_MODEL_DROPDOWN,
+		show_progress = 'full'
 	)
 	WEBCAM_VOICE_MODEL_REFRESH_BUTTON.click(
 		refresh_model_choices,
 		inputs = WEBCAM_VOICE_MODEL_SOURCE_DROPDOWN,
-		outputs = WEBCAM_VOICE_MODEL_DROPDOWN
+		outputs = WEBCAM_VOICE_MODEL_DROPDOWN,
+		show_progress = 'full'
 	)
 	WEBCAM_VOICE_PITCH_SLIDER.release(update_voice_pitch, inputs = WEBCAM_VOICE_PITCH_SLIDER)
 
@@ -134,10 +134,13 @@ def update_model_source(model_source : RvcModelSource) -> gradio.Dropdown:
 	return gradio.Dropdown(choices = model_choices, value = selected_choice)
 
 
-def update_model_choice(model_choice : str) -> None:
+def update_model_choice(model_choice : str) -> gradio.Dropdown:
 	selected_entry_id = rvc_model_registry.parse_entry_id(model_choice)
 	state_manager.set_item('webcam_voice_model_id', selected_entry_id)
 	download_model_choice(model_choice)
+	filtered_entries = get_filtered_entries(state_manager.get_item('webcam_voice_model_source'))
+	model_choices = [ rvc_model_registry.format_entry_choice(entry) for entry in filtered_entries ]
+	return gradio.Dropdown(choices = model_choices, value = model_choice)
 
 
 def refresh_model_choices(model_source : RvcModelSource) -> gradio.Dropdown:

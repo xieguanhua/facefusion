@@ -1,8 +1,10 @@
+import subprocess
 from typing import Iterator, List, Optional, Tuple
 
 import cv2
 import gradio
 import json
+import numpy
 import time
 
 from facefusion import state_manager, translator, voice_changer
@@ -18,6 +20,7 @@ SOURCE_FILE : Optional[gradio.File] = None
 WEBCAM_IMAGE : Optional[gradio.Image] = None
 WEBCAM_START_BUTTON : Optional[gradio.Button] = None
 WEBCAM_STOP_BUTTON : Optional[gradio.Button] = None
+WEBCAM_STREAM : Optional[subprocess.Popen[bytes]] = None
 
 
 def debug_log(hypothesis_id : str, location : str, message : str, data : dict) -> None:
@@ -106,6 +109,29 @@ def pre_stop() -> Tuple[gradio.File, gradio.Image, gradio.Button, gradio.Button]
 	return gradio.File(visible = True), gradio.Image(visible = False), gradio.Button(visible = True), gradio.Button(visible = False)
 
 
+def close_webcam_stream() -> None:
+	global WEBCAM_STREAM
+
+	if not WEBCAM_STREAM:
+		return None
+	try:
+		if WEBCAM_STREAM.stdin:
+			WEBCAM_STREAM.stdin.close()
+	except Exception:
+		pass
+	try:
+		if WEBCAM_STREAM.poll() is None:
+			WEBCAM_STREAM.terminate()
+			WEBCAM_STREAM.wait(timeout = 1)
+	except Exception:
+		try:
+			if WEBCAM_STREAM.poll() is None:
+				WEBCAM_STREAM.kill()
+		except Exception:
+			pass
+	WEBCAM_STREAM = None
+
+
 def start(webcam_device_id : int, webcam_mode : WebcamMode, webcam_resolution : str, webcam_fps : Fps) -> Iterator[VisionFrame]:
 	state_manager.init_item('face_selector_mode', 'one')
 	state_manager.sync_state()
@@ -121,7 +147,11 @@ def start(webcam_device_id : int, webcam_mode : WebcamMode, webcam_resolution : 
 	# endregion
 
 	camera_capture = get_local_camera_capture(webcam_device_id)
+	if not camera_capture or not camera_capture.isOpened():
+		clear_camera_pool()
+		camera_capture = get_local_camera_capture(webcam_device_id)
 	stream = None
+	close_webcam_stream()
 	# region agent log
 	debug_log('H2', 'webcam.py:start', 'camera capture fetched',
 	{
@@ -132,8 +162,11 @@ def start(webcam_device_id : int, webcam_mode : WebcamMode, webcam_resolution : 
 	# endregion
 
 	if webcam_mode in [ 'udp', 'v4l2' ]:
+		global WEBCAM_STREAM
 		voice_changer.prepare_webcam_voice_changer()
-		stream = open_stream(webcam_mode, webcam_resolution, webcam_fps, webcam_mode == 'udp', voice_changer.create_audio_filter()) #type:ignore[arg-type]
+		audio_filter = voice_changer.create_audio_filter()
+		stream = open_stream(webcam_mode, webcam_resolution, webcam_fps, webcam_mode == 'udp', audio_filter) #type:ignore[arg-type]
+		WEBCAM_STREAM = stream
 	webcam_width, webcam_height = unpack_resolution(webcam_resolution)
 
 	if camera_capture and camera_capture.isOpened():
@@ -147,11 +180,16 @@ def start(webcam_device_id : int, webcam_mode : WebcamMode, webcam_resolution : 
 				capture_vision_frame = cv2.cvtColor(capture_vision_frame, cv2.COLOR_BGR2RGB)
 				capture_vision_frame = fit_cover_frame(capture_vision_frame, (webcam_width, webcam_height))
 
-				if webcam_mode == 'inline':
-					yield capture_vision_frame
+				yield capture_vision_frame
 				if webcam_mode in [ 'udp', 'v4l2' ]:
 					try:
-						stream.stdin.write(capture_vision_frame.tobytes())
+						stream_vision_frame = capture_vision_frame
+						if stream_vision_frame.dtype != numpy.uint8:
+							stream_vision_frame = numpy.clip(stream_vision_frame, 0, 255).astype(numpy.uint8)
+						if stream_vision_frame.shape[0] != webcam_height or stream_vision_frame.shape[1] != webcam_width:
+							stream_vision_frame = cv2.resize(stream_vision_frame, (webcam_width, webcam_height))
+						stream_vision_frame = numpy.ascontiguousarray(stream_vision_frame)
+						stream.stdin.write(stream_vision_frame.tobytes())
 					except Exception as exception:
 						if not stream_error_logged:
 							# region agent log
@@ -162,6 +200,16 @@ def start(webcam_device_id : int, webcam_mode : WebcamMode, webcam_resolution : 
 								'exceptionMessage': str(exception)
 							})
 							# endregion
+							# Keep audio stream alive by retrying once without pitch filter.
+							if webcam_mode == 'udp' and audio_filter:
+								try:
+									close_webcam_stream()
+									stream = open_stream(webcam_mode, webcam_resolution, webcam_fps, True, None) #type:ignore[arg-type]
+									WEBCAM_STREAM = stream
+									audio_filter = None
+									debug_log('H4', 'webcam.py:start', 'stream reopened without audio filter', {})
+								except Exception:
+									pass
 							stream_error_logged = True
 						pass
 		finally:
@@ -173,12 +221,14 @@ def start(webcam_device_id : int, webcam_mode : WebcamMode, webcam_resolution : 
 				'streamPid': stream.pid if stream else None
 			})
 			# endregion
+			close_webcam_stream()
 
 
 def stop() -> gradio.Image:
 	# region agent log
 	debug_log('H1', 'webcam.py:stop', 'webcam stop called', {})
 	# endregion
+	close_webcam_stream()
 	clear_camera_pool()
 	# region agent log
 	debug_log('H1', 'webcam.py:stop', 'camera pool clear requested', {})

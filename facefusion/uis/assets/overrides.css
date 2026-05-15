@@ -39,6 +39,11 @@
 	padding: unset;
 }
 
+:root:root:root:root #webcam-voice-model-refresh-button
+{
+	background: white;
+}
+
 :root:root:root:root [type="checkbox"],
 :root:root:root:root [type="radio"]
 {

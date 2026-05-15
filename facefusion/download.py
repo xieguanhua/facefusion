@@ -1,5 +1,6 @@
 import os
 import subprocess
+import time
 from functools import lru_cache
 from typing import List, Optional, Tuple
 from urllib.parse import urlparse
@@ -48,15 +49,27 @@ def download_url(download_directory_path : str, url : str) -> Optional[str]:
 
 	if not download_file_name:
 		return None
-	with tqdm(total = 0, desc = translator.get('downloading'), unit = 'B', unit_scale = True, unit_divisor = 1024, ascii = ' =', disable = state_manager.get_item('log_level') in [ 'warn', 'error' ]) as progress:
+	download_size = get_static_download_size(url)
+	with tqdm(total = download_size, desc = translator.get('downloading'), unit = 'B', unit_scale = True, unit_divisor = 1024, ascii = ' =', disable = state_manager.get_item('log_level') in [ 'warn', 'error' ]) as progress:
 		commands = curl_builder.chain(
 			curl_builder.download(url, download_file_path),
 			curl_builder.set_timeout(10),
 			curl_builder.set_retry(3)
 		)
 		process = open_curl(commands)
-		process.communicate()
-		progress.update(get_file_size(download_file_path))
+		current_size = get_file_size(download_file_path) if is_file(download_file_path) else 0
+		progress.set_postfix(file_name = download_file_name)
+
+		while process.poll() is None:
+			if is_file(download_file_path):
+				new_size = get_file_size(download_file_path)
+				progress.update(new_size - current_size)
+				current_size = new_size
+			time.sleep(0.1)
+
+		if is_file(download_file_path):
+			final_size = get_file_size(download_file_path)
+			progress.update(final_size - current_size)
 
 	if is_file(download_file_path) and get_file_size(download_file_path) > 0:
 		return download_file_path
